@@ -1,0 +1,281 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.buildSecretsList = buildSecretsList;
+exports.getSecretsWithPrefix = getSecretsWithPrefix;
+exports.getSecretValue = getSecretValue;
+exports.injectSecret = injectSecret;
+exports.isJSONString = isJSONString;
+exports.transformToValidEnvName = transformToValidEnvName;
+exports.isSecretArn = isSecretArn;
+exports.extractAliasAndSecretIdFromInput = extractAliasAndSecretIdFromInput;
+exports.cleanVariable = cleanVariable;
+exports.parseTransformationFunction = parseTransformationFunction;
+const core = __importStar(require("@actions/core"));
+const client_secrets_manager_1 = require("@aws-sdk/client-secrets-manager");
+const constants_1 = require("./constants");
+require("aws-sdk-client-mock-jest");
+/**
+ * Gets the unique list of all secrets to be requested
+ *
+ * @param client: SecretsManager client
+ * @param configInputs: List of secret names, ARNs, and prefixes provided by user
+ * @param nameTransformation: Transforms the secret name
+ */
+function buildSecretsList(client, configInputs, nameTransformation) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const finalSecretsList = new Set();
+        // Prefix filters should be at least 3 characters, ending in *
+        const validFilter = new RegExp('^[a-zA-Z0-9\\/_+=.@-]{3,}\\*$');
+        for (const configInput of configInputs) {
+            if (configInput.includes('*')) {
+                const [secretAlias, secretPrefix] = extractAliasAndSecretIdFromInput(configInput, nameTransformation);
+                if (!validFilter.test(secretPrefix)) {
+                    throw new Error('Please use a valid prefix search (should be at least 3 characters and end in *)');
+                }
+                // Find and add results for a given prefix
+                const prefixMatches = yield getSecretsWithPrefix(client, secretPrefix, !!secretAlias);
+                // Add back the alias, if one was requested
+                prefixMatches.forEach(secret => finalSecretsList.add(secretAlias ? `${secretAlias},${secret}` : secret));
+            }
+            else {
+                finalSecretsList.add(configInput);
+            }
+        }
+        return [...finalSecretsList];
+    });
+}
+/**
+ * Uses ListSecrets to find secrets for a given prefix
+ *
+ * @param client: SecretsManager client
+ * @param prefix: Name to search for
+ * @param hasAlias: Flag to indicate that an alias was requested (can only match 1 secret)
+ */
+function getSecretsWithPrefix(client, prefix, hasAlias) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const params = {
+            Filters: [
+                {
+                    Key: "name",
+                    Values: [
+                        prefix.replace('*', ''),
+                    ]
+                },
+            ],
+            MaxResults: constants_1.LIST_SECRETS_MAX_RESULTS,
+        };
+        const response = yield client.send(new client_secrets_manager_1.ListSecretsCommand(params));
+        if (response.SecretList) {
+            const secretsList = response.SecretList;
+            if (secretsList.length === 0) {
+                throw new Error(`No matching secrets were returned for prefix "${prefix}".`);
+            }
+            else if (hasAlias && secretsList.length > 1) {
+                // If an alias was requested, we cannot match more than one result
+                throw new Error(`A unique alias was requested for prefix "${prefix}", but the search result for this prefix returned multiple results.`);
+            }
+            else if (response.NextToken) {
+                // If there is a second page of results, this exceeds the max number of matches
+                throw new Error(`A search for prefix "${prefix}" matched more than the maximum of ${constants_1.LIST_SECRETS_MAX_RESULTS} secrets per prefix.`);
+            }
+            return secretsList.reduce((foundSecrets, secret) => {
+                if (secret.Name) {
+                    foundSecrets.push(secret.Name);
+                }
+                return foundSecrets;
+            }, []);
+        }
+        else {
+            throw new Error('Invalid response from ListSecrets occurred');
+        }
+    });
+}
+/**
+ * Retrieves a secret from Secrets Manager
+ *
+ * @param client: SecretsManager client
+ * @param secretId: The name or full ARN of a secret
+ * @returns SecretValueResponse
+ */
+function getSecretValue(client, secretId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        let secretValue = '';
+        const data = yield client.send(new client_secrets_manager_1.GetSecretValueCommand({ SecretId: secretId }));
+        if (data.SecretString) {
+            secretValue = data.SecretString;
+        }
+        else if (data.SecretBinary) {
+            // Only string and JSON string values are supported in Github env
+            secretValue = Buffer.from(data.SecretBinary).toString('ascii');
+        }
+        if (!(data.Name)) {
+            throw new Error('Invalid name for secret');
+        }
+        return {
+            name: data.Name,
+            secretValue
+        };
+    });
+}
+/**
+ * Transforms and injects secret as a masked environmental variable
+ *
+ * @param secretName: Name of the secret
+ * @param secretValue: Value to set for secret
+ * @param parseJsonSecrets: Indicates whether to deserialize JSON secrets
+ * @param nameTransformation: Transforms the secret name
+ * @param tempEnvName: If parsing JSON secrets, contains the current name for the env variable
+ */
+function injectSecret(secretName, secretValue, parseJsonSecrets, nameTransformation, tempEnvName) {
+    let secretsToCleanup = [];
+    if (parseJsonSecrets && isJSONString(secretValue)) {
+        // Recursively parses json secrets
+        const secretMap = JSON.parse(secretValue);
+        for (const k in secretMap) {
+            const keyValue = typeof secretMap[k] === 'string' ? secretMap[k] : JSON.stringify(secretMap[k]);
+            // Append the current key to the name of the env variable and check to avoid prepending an underscore
+            const newEnvName = [
+                tempEnvName || transformToValidEnvName(secretName, nameTransformation, false),
+                transformToValidEnvName(k, nameTransformation, true)
+            ]
+                .filter(elem => elem) // Uses truthy-ness of elem to determine if it remains
+                .join("_"); // Join the remaining elements with an underscore
+            secretsToCleanup = [...secretsToCleanup, ...injectSecret(secretName, keyValue, parseJsonSecrets, nameTransformation, newEnvName)];
+        }
+    }
+    else {
+        const envName = transformToValidEnvName(tempEnvName ? tempEnvName : secretName, nameTransformation);
+        // Fail the action if this variable name is already in use, or is our cleanup name
+        if (process.env[envName] || envName === constants_1.CLEANUP_NAME) {
+            throw new Error(`The environment name '${envName}' is already in use. Please use an alias to ensure that each secret has a unique environment name`);
+        }
+        // Inject a single secret
+        core.setSecret(secretValue);
+        // Export variable
+        core.debug(`Injecting secret ${secretName} as environment variable '${envName}'.`);
+        core.exportVariable(envName, secretValue);
+        secretsToCleanup.push(envName);
+    }
+    return secretsToCleanup;
+}
+/*
+ * Checks if the given secret is a valid JSON value
+ */
+function isJSONString(secretValue) {
+    try {
+        // Not valid JSON if the parsed result is null/falsy, not an object, or is an array
+        const parsedObject = JSON.parse(secretValue);
+        return !!parsedObject && (typeof parsedObject === 'object') && !Array.isArray(parsedObject);
+    }
+    catch (_a) {
+        // Not JSON if the string fails to parse
+        return false;
+    }
+}
+/*
+ * Transforms the secret name into a valid environmental variable name
+ * It should consist of only upper case letters, digits, and underscores and cannot begin with a number
+ */
+function transformToValidEnvName(secretName, nameTransformation, hasPrefix = false) {
+    // Leading digits are invalid
+    if (!hasPrefix && secretName.match(/^[0-9]/)) {
+        secretName = '_'.concat(secretName);
+    }
+    // Remove invalid characters
+    secretName = secretName.replace(/[^a-zA-Z0-9_]/g, '_');
+    // Apply the name transformation. When no transformation is defined fallback to the "uppercase" transformation
+    return nameTransformation ? nameTransformation(secretName) : secretName.toUpperCase();
+}
+/**
+ * Checks if the given secretId is an ARN
+ *
+ * @param secretId: Value to test
+ * @returns Boolean
+ */
+function isSecretArn(secretId) {
+    const validArn = new RegExp('^arn:aws:secretsmanager:.*:[0-9]{12,}:secret:.*$');
+    return validArn.test(secretId);
+}
+/*
+ * Separates a secret alias from the secret name/arn, if one was provided
+ */
+function extractAliasAndSecretIdFromInput(input, nameTransformation) {
+    const parsedInput = input.split(',');
+    if (parsedInput.length > 1) {
+        const alias = parsedInput[0].trim();
+        const secretId = parsedInput[1].trim();
+        // Validate that the alias is valid environment name
+        const validateEnvName = transformToValidEnvName(alias, nameTransformation);
+        if (alias !== validateEnvName) {
+            throw new Error(`The alias '${alias}' is not a valid environment name. Please verify that it has uppercase letters, numbers, and underscore only.`);
+        }
+        // Return [alias, id]
+        return [alias, secretId];
+    }
+    // No alias
+    return [undefined, input.trim()];
+}
+/*
+ * Cleans up an environment variable
+ */
+function cleanVariable(variableName) {
+    core.exportVariable(variableName, '');
+    delete process.env[variableName];
+}
+/*
+ * Converts name of the transformation to the actual function that performs the transformation.
+ */
+function parseTransformationFunction(config) {
+    switch (config.toLowerCase()) {
+        case 'uppercase':
+            return (input) => input.toUpperCase();
+        case 'lowercase':
+            return (input) => input.toLowerCase();
+        case 'none':
+            return (input) => input;
+        default:
+            throw new Error(`'${config}' is unsupported transformation name. Allowed options are: 'uppercase', 'lowercase' and 'none'`);
+    }
+}
