@@ -1,0 +1,46 @@
+{
+  "name": "aws-secretsmanager-get-secrets",
+  "version": "3.0.1",
+  "description": "GitHub action for retrieving secrets from AWS Secrets Manager",
+  "main": "dist/index.js",
+  "scripts": {
+    "test": "npm run lint && jest --coverage --verbose __tests__",
+    "lint": "eslint src/**.ts",
+    "fix": "eslint src/** --fix",
+    "build": "tsc && ncc build ./src/index.ts --source-map --license licenses.txt && ncc build ./src/cleanup.ts -o dist/cleanup"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/step-security/aws-secretsmanager-get-secrets.git"
+  },
+  "keywords": [
+    "AWS",
+    "SecretsManager",
+    "GitHub",
+    "Actions"
+  ],
+  "author": "step-security",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/step-security/aws-secretsmanager-get-secrets/issues"
+  },
+  "homepage": "https://github.com/step-security/aws-secretsmanager-get-secrets#readme",
+  "dependencies": {
+    "@actions/core": "^2.0.0",
+    "@aws-sdk/client-secrets-manager": "^3.606.0",
+    "axios": "1.15.0"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.4",
+    "@eslint/js": "^10.0.1",
+    "@types/jest": "^30.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.56.1",
+    "@typescript-eslint/parser": "^8.56.1",
+    "@vercel/ncc": "^0.38.1",
+    "aws-sdk-client-mock": "^4.0.1",
+    "aws-sdk-client-mock-jest": "^4.0.1",
+    "eslint": "^10.0.2",
+    "jest": "^30.0.0",
+    "ts-jest": "^29.1.5"
+  }
+}
