@@ -41,6 +41,6 @@
     "aws-sdk-client-mock-jest": "^4.0.1",
     "eslint": "^10.0.2",
     "jest": "^30.0.0",
-    "ts-jest": "^29.1.5"
+    "ts-jest": "^29.4.9"
   }
 }
