@@ -74,7 +74,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.defaultEndpointResolver = void 0;
 const util_endpoints_1 = __webpack_require__(3068);
 const util_endpoints_2 = __webpack_require__(9674);
-const ruleset_1 = __webpack_require__(6904);
+const ruleset_1 = __webpack_require__(4523);
 const cache = new util_endpoints_2.EndpointCache({
     size: 50,
     params: ["Endpoint", "Region", "UseDualStack", "UseFIPS"],
@@ -91,7 +91,7 @@ util_endpoints_2.customEndpointFunctions.aws = util_endpoints_1.awsEndpointFunct
 
 /***/ }),
 
-/***/ 6904:
+/***/ 4523:
 /***/ ((__unused_webpack_module, exports) => {
 
 
